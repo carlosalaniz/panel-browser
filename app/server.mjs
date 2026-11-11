@@ -430,11 +430,11 @@ navigate(config.url);
 // On a developer machine, announce the stream like Harbor does (macOS dns-sd).
 if (process.env.PANEL_ANNOUNCE) {
   const name = process.env.PANEL_ANNOUNCE;
-  const child = spawn("dns-sd", ["-R", name, "_desk-panel._tcp", "local", String(streamPort), "scheme=http", "path=/panel", "proto=1"], {
-    stdio: "ignore",
-  });
+  // A small shell keeps dns-sd only while this process lives: our end of its stdin closes even when we are
+  // killed with SIGKILL, `read` returns, and the shell stops dns-sd (otherwise it would announce forever).
+  const args = ["-R", name, "_desk-panel._tcp", "local", String(streamPort), "scheme=http", "path=/panel", "proto=1"];
+  spawn("sh", ["-c", 'dns-sd "$@" >/dev/null & c=$!; read _; kill $c', "sh", ...args], { stdio: ["pipe", "ignore", "ignore"] });
   console.log(`announcing "${name}" as _desk-panel._tcp on port ${streamPort}`);
-  process.on("exit", () => child.kill());
 }
 for (const sig of ["SIGINT", "SIGTERM"]) {
   process.on(sig, () => {
