@@ -13,7 +13,9 @@ live dashboard this way.
    panel, a three-finger swipe down opens its address screen, where you can choose another renderer or type an
    address.
 
-The settings page shows what the panels see right now. Click the picture to tap the page.
+The settings page shows the page live, and you can use it from there: click, drag, scroll and type, as on the
+page itself. That is how you sign in to a page or fill in a pairing code without a keyboard on the panel. On a
+phone, tap a field in the picture, then type in the box under it. ⌘ shortcuts work as Ctrl.
 
 ## Good to know
 

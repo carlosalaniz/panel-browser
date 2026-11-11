@@ -3,7 +3,12 @@
 //
 // Two HTTP listeners:
 //   STREAM_PORT (8080)    GET /healthz, WebSocket /panel  (open: panels on the LAN cannot do a browser login)
-//   SETTINGS_PORT (8081)  the settings page and its JSON API (Harbor puts its app login in front of it)
+//   SETTINGS_PORT (8081)  the settings page, its JSON API and WebSocket /api/live (Harbor puts its app login in front)
+//
+// Live screen (/api/live, the settings page): the renderer sends each repaint as a PNG (binary); the page sends
+// input as JSON text: {"type":"mouse","action":"down"|"move"|"up","x","y","button":"left"|"right"|"middle"},
+// {"type":"wheel","x","y","dx","dy"}, {"type":"key","action":"down"|"up","key":"<KeyboardEvent.key>"},
+// {"type":"text","text":"..."}.
 //
 // Panel protocol, version 1 (WebSocket, little-endian):
 //   panel -> renderer  text   {"type":"hello","proto":1,"width":1024,"height":600,"name":"desk"}
@@ -136,6 +141,25 @@ function flush(client) {
   });
 }
 
+// Live screens on the settings page get the screencast's PNG as it is, newest only: while one is still
+// sending, a newer frame replaces the waiting one.
+const viewers = new Set(); // { ws, sending, next }
+let lastPng = null;
+function sendLive(viewer, png) {
+  if (viewer.ws.readyState !== 1) return;
+  if (viewer.sending) {
+    viewer.next = png;
+    return;
+  }
+  viewer.sending = true;
+  viewer.ws.send(png, { binary: true }, () => {
+    viewer.sending = false;
+    const next = viewer.next;
+    viewer.next = null;
+    if (next) sendLive(viewer, next);
+  });
+}
+
 function show(png) {
   const next = toRgb565(png);
   const area = frame ? changedArea(frame, next) : { x: 0, y: 0, w: size.width, h: size.height };
@@ -170,7 +194,10 @@ function queue(base64) {
     pending = null;
     const started = performance.now();
     try {
-      show(PNG.sync.read(Buffer.from(data, "base64")));
+      const png = Buffer.from(data, "base64");
+      lastPng = png;
+      for (const v of viewers) sendLive(v, png);
+      show(PNG.sync.read(png));
     } catch (err) {
       console.error("frame failed:", err.message);
     }
@@ -253,17 +280,32 @@ async function resize(width, height) {
   await startScreencast();
 }
 
-// Taps: the first finger drives the mouse; moves are coalesced by the event loop.
+// Input from panels and live screens runs one step at a time, in order.
 let input = Promise.resolve();
+function act(step) {
+  input = input.then(step).catch((err) => console.error("input failed:", err.message.split("\n")[0]));
+}
+// A burst of moves becomes one: a waiting move takes the newest position.
+let nextMove = null;
+function moveTo(x, y) {
+  if (nextMove) return void Object.assign(nextMove, { x, y });
+  nextMove = { x, y };
+  act(async () => {
+    const { x: mx, y: my } = nextMove;
+    nextMove = null;
+    await page.mouse.move(mx, my);
+  });
+}
+
+// Taps: the first finger drives the mouse.
 function touch(kind, finger, x, y) {
   if (finger !== 0) return;
-  input = input
-    .then(async () => {
-      await page.mouse.move(x, y);
-      if (kind === 1) await page.mouse.down();
-      else if (kind === 3) await page.mouse.up();
-    })
-    .catch((err) => console.error("input failed:", err.message));
+  if (kind === 2) return moveTo(x, y);
+  act(async () => {
+    await page.mouse.move(x, y);
+    if (kind === 1) await page.mouse.down();
+    else if (kind === 3) await page.mouse.up();
+  });
 }
 
 // ---- stream listener (panels) ----
@@ -408,20 +450,92 @@ const settingsServer = createServer(async (req, res) => {
       navigate(config.url);
       return json(res, 200, {});
     }
-    if (req.method === "POST" && path === "/api/tap") {
-      const body = await readJson(req);
-      const x = Number(body?.x), y = Number(body?.y);
-      if (!(x >= 0 && x < size.width && y >= 0 && y < size.height)) return json(res, 400, { error: "Tap inside the page." });
-      touch(1, 0, Math.round(x), Math.round(y));
-      touch(3, 0, Math.round(x), Math.round(y));
-      return json(res, 200, {});
-    }
     json(res, 404, { error: "Not found." });
   } catch (err) {
     console.error("settings request failed:", err);
     if (!res.headersSent) json(res, 500, { error: "Something went wrong." });
   }
 });
+
+// ---- live screen (settings page) ----
+
+// The settings page's own address only: another site open in the same browser must not drive the page
+// with the visitor's Harbor login. Behind Harbor's proxies the address the browser used is X-Forwarded-Host.
+function sameSite(req) {
+  let origin;
+  try {
+    origin = new URL(req.headers.origin);
+  } catch {
+    return false;
+  }
+  const host = String(req.headers["x-forwarded-host"] ?? req.headers.host ?? "").split(",")[0].trim().toLowerCase();
+  return origin.host.toLowerCase() === host;
+}
+
+const live = new WebSocketServer({ noServer: true, perMessageDeflate: false, maxPayload: 16 * 1024 });
+settingsServer.on("upgrade", (req, socket, head) => {
+  if (new URL(req.url, "http://x").pathname !== "/api/live") return void socket.end("HTTP/1.1 404 Not Found\r\n\r\n");
+  if (!sameSite(req)) return void socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
+  live.handleUpgrade(req, socket, head, watching);
+});
+
+const BUTTONS = new Set(["left", "right", "middle"]);
+const inPage = (x, y) => Number.isFinite(x) && Number.isFinite(y) && x >= 0 && y >= 0 && x < size.width && y < size.height;
+
+function watching(ws) {
+  const viewer = { ws, sending: false, next: null, keys: new Set(), buttons: new Set() };
+  viewers.add(viewer);
+  ws._socket?.setNoDelay(true);
+  if (lastPng) sendLive(viewer, lastPng);
+  const alive = setInterval(() => ws.ping(), 30000);
+  ws.on("message", (data, isBinary) => {
+    if (isBinary) return;
+    let m;
+    try {
+      m = JSON.parse(data.toString());
+    } catch {
+      return;
+    }
+    const x = Math.round(Number(m.x)), y = Math.round(Number(m.y));
+    if (m.type === "mouse" && inPage(x, y)) {
+      if (m.action === "move") return moveTo(x, y);
+      const button = BUTTONS.has(m.button) ? m.button : "left";
+      if (m.action === "down") viewer.buttons.add(button);
+      else if (m.action === "up") viewer.buttons.delete(button);
+      else return;
+      act(async () => {
+        await page.mouse.move(x, y);
+        await (m.action === "down" ? page.mouse.down({ button }) : page.mouse.up({ button }));
+      });
+    } else if (m.type === "wheel" && inPage(x, y)) {
+      const dx = Math.max(-2000, Math.min(2000, Number(m.dx) || 0));
+      const dy = Math.max(-2000, Math.min(2000, Number(m.dy) || 0));
+      act(async () => {
+        await page.mouse.move(x, y);
+        await page.mouse.wheel(dx, dy);
+      });
+    } else if (m.type === "key" && typeof m.key === "string" && m.key.length > 0 && m.key.length <= 32) {
+      if (m.action === "down") {
+        viewer.keys.add(m.key);
+        act(() => page.keyboard.down(m.key));
+      } else if (m.action === "up") {
+        viewer.keys.delete(m.key);
+        act(() => page.keyboard.up(m.key));
+      }
+    } else if (m.type === "text" && typeof m.text === "string" && m.text.length > 0 && m.text.length <= 4000) {
+      act(() => page.keyboard.insertText(m.text));
+    }
+  });
+  const drop = () => {
+    clearInterval(alive);
+    if (!viewers.delete(viewer)) return;
+    // a closed tab must not leave Shift or a mouse button held on the page
+    for (const key of viewer.keys) act(() => page.keyboard.up(key));
+    for (const button of viewer.buttons) act(() => page.mouse.up({ button }));
+  };
+  ws.on("close", drop);
+  ws.on("error", drop);
+}
 
 streamServer.listen(streamPort, () => console.log(`panels: ws://*:${streamPort}/panel`));
 settingsServer.listen(settingsPort, () => console.log(`settings: http://*:${settingsPort}/`));

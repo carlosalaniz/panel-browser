@@ -31,10 +31,16 @@
         <button type="button" id="reload">Reload page</button>
       </div>
       <p id="status" class="quiet" aria-live="polite">Loading…</p>
-      <button type="button" id="preview-button" class="preview" aria-label="Tap the page here">
-        <img id="preview" alt="What the panels show right now" width="1024" height="600">
-      </button>
-      <p class="quiet small">Click the picture to tap the page at that spot.</p>
+      <canvas id="screen" class="screen" width="1024" height="600" tabindex="0" role="application"
+              aria-label="The page on the panels, live. Click, scroll and type here to use it."></canvas>
+      <p id="live" class="quiet small" aria-live="polite">Connecting…</p>
+      <form id="type-form" class="row">
+        <input id="type" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"
+               enterkeyhint="send" aria-label="Type into the page" placeholder="Type into the page">
+        <button type="submit">Enter</button>
+      </form>
+      <p class="quiet small">Use the picture like the page itself: click, drag, scroll, and type while it has focus
+        (⌘ shortcuts work as Ctrl). On a phone, tap a field in the picture, then type in the box.</p>
     </section>
 
     <section aria-labelledby="panels-heading">
