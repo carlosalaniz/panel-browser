@@ -1,0 +1,4 @@
+node_modules/
+app/data/
+panel/desk-panel
+.DS_Store

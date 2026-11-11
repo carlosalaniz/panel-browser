@@ -1,0 +1,16 @@
+{
+  "name": "panel-browser",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Renders a web page in headless Chromium and streams it to small touch panels",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "PANEL_ANNOUNCE='Panel Browser (dev)' STREAM_PORT=5174 SETTINGS_PORT=5175 node server.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "1.63.0",
+    "pngjs": "7.0.0",
+    "ws": "8.18.3"
+  }
+}

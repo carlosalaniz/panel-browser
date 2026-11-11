@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Panel Browser</title>
+  <link rel="stylesheet" href="/settings.css">
+  <script src="/settings.js" defer></script>
+</head>
+<body>
+  <main>
+    <h1>panel browser</h1>
+    <p class="quiet">The page your touch panels show. Panels on your network find this app on their own.</p>
+
+    <form id="url-form">
+      <label for="url">Page to show</label>
+      <div class="row">
+        <input id="url" name="url" type="url" inputmode="url" autocomplete="off" spellcheck="false"
+               placeholder="http://192.168.1.20:5173/">
+        <button type="submit" class="primary">Save</button>
+      </div>
+      <label for="timezone">Time zone</label>
+      <select id="timezone" name="timezone"></select>
+      <p class="quiet small">The page's clock uses it.</p>
+      <p id="url-problem" class="problem" role="alert" hidden></p>
+    </form>
+
+    <section aria-labelledby="now-heading">
+      <div class="heading-row">
+        <h2 id="now-heading">On the panels now</h2>
+        <button type="button" id="reload">Reload page</button>
+      </div>
+      <p id="status" class="quiet" aria-live="polite">Loading…</p>
+      <button type="button" id="preview-button" class="preview" aria-label="Tap the page here">
+        <img id="preview" alt="What the panels show right now" width="1024" height="600">
+      </button>
+      <p class="quiet small">Click the picture to tap the page at that spot.</p>
+    </section>
+
+    <section aria-labelledby="panels-heading">
+      <h2 id="panels-heading">Connected panels</h2>
+      <ul id="panels"></ul>
+      <p id="no-panels" class="quiet" hidden>No panel is connected. A panel finds this app on your network, or you type its address on the panel.</p>
+    </section>
+  </main>
+</body>
+</html>

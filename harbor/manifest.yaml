@@ -1,0 +1,61 @@
+apiVersion: harbor/v1alpha1
+kind: Application
+metadata:
+  id: panel-browser
+  name: "Panel Browser"
+  description: "Shows a web page on small touch screens around the house. The page runs here in a real browser; each screen only draws what changed and sends back its taps, so even a Raspberry Pi Zero feels quick."
+release:
+  revision: "1"
+  version: 0.1.0
+  # endpoints.stream.advertise (decision 200)
+  minHarbor: "0.44.0"
+deployment:
+  compose: compose.yaml
+  multiInstance: true
+  services:
+    browser: application
+endpoints:
+  settings:
+    service: browser
+    containerPort: 8081
+    scheme: http
+    exposure: direct
+    browserContext: ordinary
+    # The settings page has no login of its own and chooses which address the browser opens.
+    login: required
+  stream:
+    service: browser
+    containerPort: 8080
+    scheme: http
+    exposure: direct
+    browserContext: ordinary
+    # Panels connect here with a WebSocket (/panel). They cannot do a browser login, so it stays open on the LAN.
+    kind: api
+    advertise:
+      type: _desk-panel._tcp
+      txt:
+        path: /panel
+        proto: "1"
+health:
+  endpoint: stream
+  path: /healthz
+  expectedStatus: [200]
+  timeoutSeconds: 5
+  deadlineSeconds: 120
+ui:
+  primaryEndpoint: settings
+setup:
+  endpoint: settings
+  instructions: "Open Panel Browser, type the address of the page your screens should show and pick your time zone. Panels on this network find the app on their own while LAN access is on."
+storage:
+  - id: data
+    composeVolume: data
+    purpose: "The page address and time zone you chose"
+    retention: retain
+presentation:
+  tagline: A web page on your touch screens
+  category: home
+  icon: icon.svg
+  developer: Carlos Alaniz
+  releaseNotes: First release.
+  sizeHint: About 1.3 GB, mostly the browser

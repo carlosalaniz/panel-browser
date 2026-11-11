@@ -1,0 +1,12 @@
+[Unit]
+Description=Desk panel client
+# No network ordering on purpose: the client retries until the renderer answers.
+
+[Service]
+EnvironmentFile=-/etc/default/desk-panel
+ExecStart=/opt/desk-panel/desk-panel
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
